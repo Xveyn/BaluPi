@@ -44,3 +44,6 @@ htmlcov/
 # Binaries
 claude.exe
 *.exe
+
+#static frontend
+backend/static/

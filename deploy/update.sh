@@ -26,6 +26,15 @@ echo "Updating dependencies..."
 source .venv/bin/activate
 pip install -e "./backend" --quiet
 
+# Sync frontend from BaluHost
+echo "Syncing frontend..."
+if command -v node &> /dev/null; then
+    python3 sync_frontend.py --branch development
+else
+    echo "WARNING: Node.js not installed — skipping frontend build."
+    echo "Run 'python3 sync_frontend.py' on a machine with Node.js and copy backend/static/ to the Pi."
+fi
+
 # Restart service
 echo "Restarting service..."
 sudo systemctl restart balupi
