@@ -9,10 +9,13 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.config import settings
-from app.database import init_db
+from app.database import async_session, init_db
+from app.services import init_services, shutdown_services
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,10 @@ async def _lifespan(app: FastAPI):
     await init_db()
     logger.info("BaluPi v%s started — listening on %s:%s", __version__, settings.host, settings.port)
 
-    # TODO P1: start energy scheduler
+    # P1: Energy monitoring services + scheduler
+    async with async_session() as db:
+        await init_services(db)
+
     # TODO P2: start NAS discovery
     # TODO P3: start sync scheduler
 
@@ -38,8 +44,8 @@ async def _lifespan(app: FastAPI):
         yield
     finally:
         # === SHUTDOWN ===
+        await shutdown_services()
         logger.info("BaluPi shutting down")
-        # TODO: stop schedulers, close connections
 
 
 def _setup_logging() -> None:
@@ -48,6 +54,9 @@ def _setup_logging() -> None:
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # Noisy third-party loggers auf WARNING setzen
+    for noisy in ("aiosqlite", "kasa", "kasa.smart.smartmodule", "apscheduler"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def create_app() -> FastAPI:
@@ -72,6 +81,31 @@ def create_app() -> FastAPI:
 
     # Mount API routes
     app.include_router(api_router, prefix=settings.api_prefix)
+
+    # Serve BaluHost frontend (built via sync_frontend.py)
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    if static_dir.is_dir() and (static_dir / "index.html").exists():
+        # Serve static assets (js, css, images, etc.)
+        app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="frontend-assets")
+
+        _index = static_dir / "index.html"
+
+        # SPA fallback: any non-API route serves index.html
+        @app.get("/", include_in_schema=False)
+        async def _spa_root():
+            return FileResponse(_index)
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def _spa_fallback(full_path: str):
+            # Try to serve the exact file first (favicon.ico, etc.)
+            file_path = static_dir / full_path
+            if full_path and file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(_index)
+
+        logger.info("Frontend mounted from %s", static_dir)
+    else:
+        logger.info("No frontend found at %s — API-only mode", static_dir)
 
     return app
 
