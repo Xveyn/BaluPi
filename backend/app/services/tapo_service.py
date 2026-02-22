@@ -326,7 +326,7 @@ class TapoService:
         dev.last_seen = datetime.now(timezone.utc)
         await db.commit()
 
-        return {"device_id": device_id, "state": state}
+        return {"device_id": device_id, "new_state": state, "success": True}
 
     def get_current_readings(self) -> dict[str, EnergyReading | None]:
         """Get latest buffered reading per device (in-memory, no DB)."""

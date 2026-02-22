@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,22 +55,47 @@ async def get_current_user(
             user = result.scalar_one_or_none()
             if not user:
                 user = User(
+                    id=str(uuid.uuid4()),
                     username=data["username"],
                     nas_user_id=str(data.get("id", "")),
+                    last_auth=datetime.now(timezone.utc),
                 )
                 db.add(user)
-                await db.commit()
-                await db.refresh(user)
+            else:
+                user.last_auth = datetime.now(timezone.utc)
+            await db.commit()
+            await db.refresh(user)
             return user
     except (httpx.HTTPError, Exception) as exc:
         logger.debug("NAS unreachable for token validation: %s", exc)
 
-    # Fallback: check local token hash cache
-    # TODO: implement JWT decode with shared secret
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials (NAS unreachable)",
-    )
+    # Fallback: decode JWT locally with shared secret
+    try:
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.token_algorithm],
+        )
+        username: str | None = payload.get("sub") or payload.get("username")
+        if not username:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: no subject claim",
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not cached locally — login with NAS online first",
+        )
+    return user
 
 
 async def get_current_user_optional(

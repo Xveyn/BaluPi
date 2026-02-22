@@ -24,6 +24,13 @@ class TapoDeviceUpdate(BaseModel):
     role: str | None = None  # nas, monitor, generic
 
 
+class TapoToggleResult(BaseModel):
+    """Result of toggling a Tapo device."""
+    device_id: str
+    new_state: str
+    success: bool = True
+
+
 class TapoDiscoverResult(BaseModel):
     """Result of a Tapo discovery scan."""
     discovered: int

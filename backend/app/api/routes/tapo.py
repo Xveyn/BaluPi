@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.tapo import TapoDeviceOut, TapoDeviceUpdate, TapoDiscoverResult
+from app.schemas.tapo import TapoDeviceOut, TapoDeviceUpdate, TapoDiscoverResult, TapoToggleResult
 from app.services import get_tapo_service
 
 router = APIRouter()
@@ -38,7 +38,7 @@ async def update_tapo_device(
     return result
 
 
-@router.post("/devices/{device_id}/toggle")
+@router.post("/devices/{device_id}/toggle", response_model=TapoToggleResult)
 async def toggle_tapo_device(
     device_id: str,
     db: AsyncSession = Depends(get_db),
