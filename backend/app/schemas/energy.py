@@ -56,3 +56,23 @@ class EnergySummary(BaseModel):
     avg_daily_kwh: float
     monthly_cost_estimate_cents: float
     nas_state: str  # off, standby, idle, active, unknown
+
+
+class PriceConfigCreate(BaseModel):
+    """Create an electricity price configuration."""
+    name: str
+    price_per_kwh_cents: float
+    valid_from: str | None = None
+    valid_to: str | None = None
+    is_active: bool = True
+
+
+class PriceConfigOut(BaseModel):
+    """Electricity price configuration response."""
+    id: int
+    name: str
+    price_per_kwh_cents: float
+    valid_from: str | None = None
+    valid_to: str | None = None
+    is_active: bool = True
+    created_at: str | None = None

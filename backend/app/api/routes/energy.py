@@ -1,41 +1,79 @@
 """Energy monitoring API routes — P1 feature."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.energy import EnergyCurrentAll, EnergySummary
+from app.database import get_db
+from app.schemas.energy import EnergyCurrentAll, EnergySummary, PriceConfigCreate, PriceConfigOut
+from app.services import get_energy_service, get_nas_detection_service, get_tapo_service
 
 router = APIRouter()
 
 
 @router.get("/current", response_model=EnergyCurrentAll)
-async def energy_current():
+async def energy_current(db: AsyncSession = Depends(get_db)):
     """Current power readings from all Tapo devices."""
-    # TODO P1: implement with TapoService
-    return EnergyCurrentAll(devices=[], total_power_w=0.0)
+    energy = get_energy_service()
+    tapo = get_tapo_service()
+    return await energy.get_current_all(db, tapo)
 
 
 @router.get("/history")
-async def energy_history(device_id: str | None = None, period: str = "day"):
+async def energy_history(
+    device_id: str | None = None,
+    period: str = "day",
+    db: AsyncSession = Depends(get_db),
+):
     """Historical energy data (day/week/month)."""
-    # TODO P1: query energy_hourly / energy_daily
-    return {"device_id": device_id, "period": period, "data": []}
+    energy = get_energy_service()
+    data = await energy.get_history(db, device_id, period)
+
+    # Get device name for response
+    device_name = "all"
+    if device_id:
+        tapo = get_tapo_service()
+        info = tapo.get_device_info(device_id)
+        device_name = info["name"] if info else device_id
+
+    return {
+        "device_id": device_id or "all",
+        "device_name": device_name,
+        "period": period,
+        "data": data,
+    }
 
 
 @router.get("/costs")
-async def energy_costs(device_id: str | None = None, period: str = "month"):
+async def energy_costs(
+    device_id: str | None = None,
+    period: str = "month",
+    db: AsyncSession = Depends(get_db),
+):
     """Energy cost calculations."""
-    # TODO P1: calculate from energy_daily + price_config
-    return {"device_id": device_id, "period": period, "total_kwh": 0, "cost_cents": 0}
+    energy = get_energy_service()
+    return await energy.calculate_cost(db, device_id, period)
 
 
 @router.get("/summary", response_model=EnergySummary)
-async def energy_summary():
+async def energy_summary(db: AsyncSession = Depends(get_db)):
     """Overall energy summary."""
-    # TODO P1: aggregate all devices
-    return EnergySummary(
-        total_devices=0,
-        total_power_w=0.0,
-        avg_daily_kwh=0.0,
-        monthly_cost_estimate_cents=0.0,
-        nas_state="unknown",
-    )
+    energy = get_energy_service()
+    tapo = get_tapo_service()
+    nas_detection = get_nas_detection_service()
+
+    nas_state = nas_detection.detect_state()
+    return await energy.get_summary(db, tapo, nas_state.state)
+
+
+@router.get("/prices", response_model=list[PriceConfigOut])
+async def list_prices(db: AsyncSession = Depends(get_db)):
+    """List all electricity price configurations."""
+    energy = get_energy_service()
+    return await energy.get_prices(db)
+
+
+@router.post("/prices", response_model=PriceConfigOut, status_code=201)
+async def create_price(body: PriceConfigCreate, db: AsyncSession = Depends(get_db)):
+    """Create a new electricity price configuration."""
+    energy = get_energy_service()
+    return await energy.create_price(db, body.model_dump())
