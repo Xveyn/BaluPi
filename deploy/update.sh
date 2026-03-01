@@ -16,28 +16,26 @@ REMOTE=$(git rev-parse origin/main)
 
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo "Already up to date."
-    exit 0
-fi
-
-git pull --ff-only origin main
-
-# Update dependencies
-echo "Updating dependencies..."
-source .venv/bin/activate
-pip install -e "./backend" --quiet
-
-# Sync frontend from BaluHost
-echo "Syncing frontend..."
-if command -v node &> /dev/null; then
-    python3 sync_frontend.py --branch development
 else
-    echo "WARNING: Node.js not installed — skipping frontend build."
-    echo "Run 'python3 sync_frontend.py' on a machine with Node.js and copy backend/static/ to the Pi."
+    git pull --ff-only origin main
+
+    # Update dependencies
+    echo "Updating dependencies..."
+    source .venv/bin/activate
+    pip install -e "./backend" --quiet
 fi
+
+# Sync frontend from pre-built branch (no Node.js needed)
+echo "Syncing frontend..."
+source .venv/bin/activate
+python3 sync_frontend.py --from-branch frontend
 
 # Restart service
 echo "Restarting service..."
 sudo systemctl restart balupi
+
+# Reload nginx (picks up any config changes)
+sudo nginx -t && sudo systemctl reload nginx
 
 echo "Update complete. New version:"
 git log --oneline -1

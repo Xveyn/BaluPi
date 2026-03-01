@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
-"""Download and build the BaluHost frontend for BaluPi.
+"""Download and install the BaluHost frontend for BaluPi.
 
-Downloads the client/ source from the BaluHost GitHub repo,
-runs `npm ci && npm run build`, and copies dist/ to backend/static/.
+Three modes of operation:
 
-Usage:
-    python sync_frontend.py                  # build from development branch
-    python sync_frontend.py --branch main    # build from specific branch
-    python sync_frontend.py --skip-build     # copy existing dist (if pre-built)
+1. **From repo branch** (preferred on Pi — no Node.js needed):
+       python sync_frontend.py --from-branch frontend
+   Fetches pre-built assets from a dedicated branch in this repo
+   (pushed by BaluHost's GitHub Actions workflow).
+
+2. **From GitHub source** (fallback — requires Node.js):
+       python sync_frontend.py
+       python sync_frontend.py --branch main
+   Downloads client/ source from BaluHost, runs npm build.
+
+3. **From local source** (development):
+       python sync_frontend.py --source ../BaluHost/client
+   Uses a local BaluHost checkout.
 
 Requirements:
-    - Node.js >= 18 and npm (for building)
-    - Internet access (to download source)
+    - Mode 1: git only
+    - Mode 2: Node.js >= 18 and npm
+    - Mode 3: Node.js >= 18 and npm (unless --skip-build)
 """
 
 from __future__ import annotations
@@ -26,13 +35,13 @@ import sys
 import tarfile
 import tempfile
 import typing
-import urllib.request
 from pathlib import Path
 
 REPO = "Xveyn/BaluHost"
 DEFAULT_BRANCH = "development"
+DEFAULT_FRONTEND_BRANCH = "frontend"
 CLIENT_DIR = "client"
-DEST_DIR = Path(__file__).resolve().parent / "backend" / "static"
+DEST_DIR = Path(__file__).resolve().parent / "dist"
 
 # ANSI colors (disabled on Windows without ANSI support)
 _NO_COLOR = os.environ.get("NO_COLOR") or (os.name == "nt" and not os.environ.get("WT_SESSION"))
@@ -63,6 +72,8 @@ def check_node() -> None:
 
 def download_source(branch: str, dest: Path) -> Path:
     """Download repo tarball and extract client/ directory."""
+    import urllib.request
+
     url = f"https://github.com/{REPO}/archive/refs/heads/{branch}.tar.gz"
     log(f"Downloading {REPO}@{branch} ...")
 
@@ -132,39 +143,108 @@ def copy_dist(dist_dir: Path) -> None:
         log(f"Cleaning {DEST_DIR} ...")
         shutil.rmtree(DEST_DIR)
 
-    log(f"Copying dist/ → {DEST_DIR.relative_to(Path(__file__).resolve().parent)} ...")
+    log(f"Copying to {DEST_DIR.relative_to(Path(__file__).resolve().parent)} ...")
     shutil.copytree(dist_dir, DEST_DIR)
 
     # Count files for summary
     file_count = sum(1 for _ in DEST_DIR.rglob("*") if _.is_file())
     size_mb = sum(f.stat().st_size for f in DEST_DIR.rglob("*") if f.is_file()) / (1024 * 1024)
-    log(f"Done! {file_count} files, {size_mb:.1f} MB → {DEST_DIR}")
+    log(f"Done! {file_count} files, {size_mb:.1f} MB ->{DEST_DIR}")
+
+
+def sync_from_branch(branch: str) -> None:
+    """Fetch pre-built frontend from a git branch and copy to backend/static/.
+
+    The BaluHost GitHub Actions workflow pushes pre-built dist-pi/
+    to a dedicated branch (e.g. 'frontend') in this repo.
+    """
+    repo_root = Path(__file__).resolve().parent
+
+    log(f"Fetching branch '{branch}' ...")
+    result = subprocess.run(
+        ["git", "fetch", "origin", branch],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        error(f"git fetch failed: {result.stderr.strip()}")
+
+    # Check if the branch exists
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"origin/{branch}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        error(f"Branch 'origin/{branch}' not found. Has the BaluHost workflow run yet?")
+
+    commit = result.stdout.strip()[:8]
+    log(f"Using origin/{branch} @ {commit}")
+
+    # Extract files from that branch into a temp dir
+    with tempfile.TemporaryDirectory(prefix="balupi-frontend-") as tmp:
+        tmp_path = Path(tmp)
+        result = subprocess.run(
+            ["git", "archive", f"origin/{branch}"],
+            cwd=repo_root,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            error("git archive failed")
+
+        # Extract tar
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as tar:
+            tar.extractall(path=tmp_path)
+
+        # Verify index.html exists
+        if not (tmp_path / "index.html").exists():
+            error(f"No index.html found on branch '{branch}'. Check BaluHost workflow config.")
+
+        copy_dist(tmp_path)
+
+    log(f"Frontend synced from origin/{branch} @ {commit}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync BaluHost frontend for BaluPi")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--from-branch",
+        metavar="BRANCH",
+        nargs="?",
+        const=DEFAULT_FRONTEND_BRANCH,
+        default=None,
+        help=f"Pull pre-built frontend from git branch (default: {DEFAULT_FRONTEND_BRANCH}). "
+             "No Node.js required — preferred on Pi.",
+    )
+    mode.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help="Use local client/ source instead of downloading",
+    )
     parser.add_argument(
         "--branch", "-b",
         default=DEFAULT_BRANCH,
-        help=f"Git branch to download (default: {DEFAULT_BRANCH})",
+        help=f"Git branch to download source from (default: {DEFAULT_BRANCH})",
     )
     parser.add_argument(
         "--skip-build",
         action="store_true",
         help="Skip npm build (use if dist/ is pre-built locally)",
     )
-    parser.add_argument(
-        "--source",
-        type=Path,
-        default=None,
-        help="Use local client/ source instead of downloading",
-    )
     args = parser.parse_args()
 
     print(f"\n{BOLD}=== BaluPi Frontend Sync ==={RESET}\n")
 
-    if args.source:
-        # Use local source directory
+    if args.from_branch:
+        # Mode 1: Pull pre-built from git branch (no Node.js needed)
+        sync_from_branch(args.from_branch)
+
+    elif args.source:
+        # Mode 3: Use local source directory
         client_dir = args.source.resolve()
         if not (client_dir / "package.json").exists():
             error(f"No package.json found in {client_dir}")
@@ -180,7 +260,7 @@ def main() -> None:
 
         copy_dist(dist)
     else:
-        # Download from GitHub and build
+        # Mode 2: Download from GitHub and build
         check_node()
 
         with tempfile.TemporaryDirectory(prefix="balupi-frontend-") as tmp:

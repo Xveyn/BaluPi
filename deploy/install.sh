@@ -24,7 +24,7 @@ fi
 echo ""
 echo "Installing system packages..."
 sudo apt-get update -qq
-sudo apt-get install -y -qq git python3-venv python3-pip
+sudo apt-get install -y -qq git python3-venv python3-pip nginx
 
 # Clone or update repo
 if [ -d "$INSTALL_DIR" ]; then
@@ -68,11 +68,19 @@ sudo cp deploy/balupi.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable balupi
 
+# Configure nginx reverse proxy
+echo ""
+echo "Configuring nginx..."
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/balupi
+sudo ln -sf /etc/nginx/sites-available/balupi /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
 echo ""
 echo "=== Installation complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Edit /opt/balupi/.env"
 echo "  2. sudo systemctl start balupi"
-echo "  3. Check: curl http://localhost:8000/api/health"
+echo "  3. Check: curl http://localhost/api/health"
 echo ""
