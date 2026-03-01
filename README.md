@@ -1,24 +1,30 @@
 # BaluPi
 
-**Smart Cache & Energy Monitor** for the BaluHost NAS ecosystem, running on a Raspberry Pi 3B+.
+**Always-on Raspberry Pi Node** im BaluHost-NAS-Ökosystem — PiHole/DNS, Strommonitoring, Wake-on-LAN und View-Only-Dashboard.
 
-## What is BaluPi?
+## Was ist BaluPi?
 
-BaluPi is an always-on Raspberry Pi (~4W) that acts as a smart intermediary between your clients (BaluApp, BaluDesk) and your BaluHost NAS (~50–120W). It provides:
+BaluPi ist ein Raspberry Pi 3B+ (~3–5W), der **immer läuft** und als passiver Gegenpart zum BaluHost-NAS dient. Drei Kernaufgaben:
 
-1. **Smart Cache** — Mobile-first sync endpoint with 80/20 hot-cache strategy. Frequently accessed files are stored locally on the Pi's SSD for instant access, while the NAS only wakes when needed.
+1. **PiHole/DNS** — Netzwerk-weites Ad-Blocking und DNS-Umschaltung (`baluhost.local` zeigt je nach NAS-Status auf NAS oder Pi)
+2. **Strommonitoring** — 24/7 Messung des NAS-Verbrauchs via Tapo P110/P115 Smart Plugs
+3. **Wake-on-LAN & Handshake** — NAS bei Bedarf aufwecken, automatischer DNS-Switch und Inbox-Flush beim Hoch-/Runterfahren
 
-2. **Energy Monitoring** — 24/7 power measurement of the NAS (and other devices) via Tapo P110/P115 smart plugs. Tracks consumption, calculates costs, and detects NAS power state.
+Zusätzlich: ein **abgespecktes View-Only-Dashboard** (vom NAS gebaut, auf dem Pi gehostet) und ein **eigenständiger SMB-Share** als immer verfügbarer Speicher.
 
 ```
-BaluApp (Android) ──┐
-                    ▼
-               ┌─────────┐    WOL / REST     ┌──────────┐
-               │ BaluPi  │ ◄───────────────► │ BaluHost │
-               │ (Cache) │    Sync & Energy   │  (NAS)   │
-               └─────────┘                    └──────────┘
-                    ▲
-BaluDesk (Desktop) ─┘
+Heimnetzwerk
+│
+├── NAS (BaluHost) ─ 192.168.x.10
+│   • Volles Frontend + Backend
+│   • Läuft nur bei Bedarf (30-50W)
+│
+└── Raspberry Pi 3B+ (BaluPi) ─ 192.168.x.20
+    • View-Only Dashboard + PiHole
+    • Tapo Strommonitoring
+    • WoL + Handshake + DNS-Switch
+    • SMB-Share (1TB HDD)
+    • Läuft immer (~3-5W)
 ```
 
 ## Quick Start
@@ -36,24 +42,23 @@ Server läuft auf `http://localhost:8000`. API-Docs: `http://localhost:8000/docs
 ### Production (Raspberry Pi)
 
 ```bash
-# One-click install
+# One-click install (inkl. nginx, systemd)
 curl -sSL https://raw.githubusercontent.com/Xveyn/BaluPi/main/deploy/install.sh | bash
 
-# Or manual
-git clone https://github.com/Xveyn/BaluPi.git /opt/balupi
-cd /opt/balupi
-cp .env.example .env
-# Edit .env with your NAS URL, Tapo credentials, etc.
-bash deploy/install.sh
+# Dann konfigurieren
+nano /opt/balupi/.env
+sudo systemctl start balupi
 ```
+
+Vollständige Einrichtungsanleitung: **[pi_setup.md](pi_setup.md)**
 
 ### Verify
 
 ```bash
-curl http://localhost:8000/api/health
-# {"status":"ok","version":"0.1.0","service":"balupi","cache_enabled":true,"energy_enabled":true}
+curl http://localhost/api/health
+# {"status":"ok","version":"0.1.0","service":"balupi"}
 
-curl http://localhost:8000/api/system/status
+curl http://localhost/api/system/status
 # {"cpu_percent":12.3,"cpu_temp_celsius":42.5,"memory_total_mb":926.1,...}
 ```
 
@@ -68,73 +73,103 @@ curl http://localhost:8000/api/system/status
 | HTTP Client | httpx (NAS-Kommunikation) |
 | Energy | python-kasa (Tapo P110/P115) |
 | Scheduler | APScheduler |
-| Server | Uvicorn (1 Worker) |
+| Reverse Proxy | nginx (Port 80) |
+| Server | Uvicorn (127.0.0.1:8000, 1 Worker) |
 
 ## Configuration
 
-All settings via environment variables with `BALUPI_` prefix. See [.env.example](.env.example).
+Alle Einstellungen via Umgebungsvariablen mit `BALUPI_`-Prefix. Siehe [.env.example](.env.example) und [pi_setup.md](pi_setup.md#konfiguration).
 
-| Variable | Default | Description |
+| Variable | Default | Beschreibung |
 |---|---|---|
+| `BALUPI_MODE` | `dev` | `dev` = Mock-Daten, `prod` = echte Hardware |
 | `BALUPI_NAS_URL` | `http://192.168.178.53` | BaluHost NAS URL |
-| `BALUPI_NAS_MAC_ADDRESS` | — | NAS MAC for Wake-on-LAN |
-| `BALUPI_TAPO_USERNAME` | — | Tapo account email |
-| `BALUPI_TAPO_PASSWORD` | — | Tapo account password |
-| `BALUPI_SECRET_KEY` | — | JWT signing key |
-| `BALUPI_CACHE_MAX_SIZE_GB` | `200` | Max file cache size |
-| `BALUPI_ENERGY_DEFAULT_PRICE_CENTS` | `32` | Electricity price ct/kWh |
+| `BALUPI_NAS_MAC_ADDRESS` | — | NAS MAC für Wake-on-LAN |
+| `BALUPI_NAS_IP` | — | NAS-IP für DNS-Umschaltung |
+| `BALUPI_HANDSHAKE_SECRET` | — | Shared HMAC-Secret (NAS + Pi identisch) |
+| `BALUPI_PIHOLE_URL` | `http://localhost` | Pi-hole Admin-URL |
+| `BALUPI_PI_IP` | — | Eigene Pi-IP für DNS-Switch |
+| `BALUPI_TAPO_USERNAME` | — | Tapo-Account E-Mail |
+| `BALUPI_TAPO_PASSWORD` | — | Tapo-Account Passwort |
+| `BALUPI_SECRET_KEY` | — | JWT Signing Key |
+| `BALUPI_ENERGY_DEFAULT_PRICE_CENTS` | `32` | Strompreis ct/kWh |
 
 ## API Overview
 
-| Endpoint | Description | Status |
+| Endpoint | Beschreibung | Phase |
 |---|---|---|
-| `GET /api/health` | Health check (BaluHost-kompatibel) | P0 |
+| `GET /api/health` | Health Check | P0 |
 | `GET /api/system/status` | Pi CPU, RAM, Temp, Disk | P0 |
 | `POST /api/auth/login` | Login via NAS | P0 |
-| `GET /api/energy/*` | Energiemessung | P1 |
+| `GET /api/energy/*` | Energiemessung & Kosten | P1 |
 | `GET /api/tapo/*` | Smart Plug Verwaltung | P1 |
-| `GET /api/nas/status` | NAS-Erreichbarkeit | P2 |
-| `POST /api/nas/wol` | Wake-on-LAN | P2 |
-| `GET /api/files/*` | Dateizugriff (Cache) | P3 |
-| `GET /api/cache/stats` | Cache-Statistiken | P3 |
+| `GET /api/nas/status` | NAS-Status (State Machine) | P2 |
+| `POST /api/nas/wol` | Wake-on-LAN mit Power-Check | P2 |
+| `POST /api/handshake/nas-going-offline` | NAS meldet sich ab (HMAC) | P2 |
+| `POST /api/handshake/nas-coming-online` | NAS meldet sich an (HMAC) | P2 |
+| `GET /api/handshake/status` | Handshake-Status & Inbox | P2 |
+| `GET /api/handshake/snapshot` | Letzter NAS-Snapshot | P2 |
 
-Full API documentation: [docs/api.md](docs/api.md)
+API-Dokumentation: [docs/api.md](docs/api.md)
+
+## Handshake-Protokoll
+
+Der Pi kontrolliert als DNS-Server den Eintrag `baluhost.local`:
+
+**NAS fährt runter:**
+```
+NAS → Pi: POST /handshake/nas-going-offline (Snapshot + HMAC)
+Pi: Speichert Snapshot, DNS → Pi-IP, State → OFFLINE
+```
+
+**NAS fährt hoch:**
+```
+User → Pi: POST /nas/wol (WoL-Paket senden)
+NAS → Pi: POST /handshake/nas-coming-online (HMAC)
+Pi: Inbox-Flush (rsync), DNS → NAS-IP, State → ONLINE
+```
+
+**Heartbeat:** Pi prüft alle 30s NAS-Health + Tapo-Power. 3× Ausfall → automatischer DNS-Switch.
 
 ## Project Structure
 
 ```
 backend/
 ├── app/
-│   ├── main.py          # FastAPI app factory
-│   ├── config.py         # Settings (BALUPI_ env prefix)
-│   ├── database.py       # Async SQLAlchemy + SQLite WAL
-│   ├── models/           # 10 ORM models
-│   ├── schemas/          # Pydantic request/response
-│   ├── api/routes/       # 8 route modules
-│   ├── services/         # Business logic
-│   └── utils/            # Hashing, WOL, storage
-├── tests/                # pytest + pytest-asyncio
+│   ├── main.py              # FastAPI App Factory
+│   ├── config.py            # Settings (BALUPI_ Prefix)
+│   ├── database.py          # Async SQLAlchemy + SQLite WAL
+│   ├── models/              # ORM Models (User, Server, Tapo, Energy)
+│   ├── schemas/             # Pydantic Request/Response
+│   ├── api/routes/          # Route Modules (health, nas, handshake, energy, tapo, ...)
+│   ├── services/            # State Machine, Heartbeat, DNS, Tapo, Energy
+│   └── utils/               # WOL, Hashing
+├── tests/                   # pytest + pytest-asyncio
 └── pyproject.toml
-deploy/                   # systemd, install.sh, update.sh
-docs/                     # Technical documentation
+deploy/                      # nginx.conf, balupi.service, install.sh, update.sh
+dist/                        # Frontend (von sync_frontend.py deployed)
+pi_setup.md                  # Vollständige Pi-Einrichtungsanleitung
+BALUPI_PLAN.md               # Projektplan & Architektur
 ```
 
-## Development Roadmap
+## Phasen
 
 | Phase | Scope | Status |
 |---|---|---|
-| P0 | Foundation (FastAPI, DB, Health, System) | Done |
-| P1 | Energy Monitoring (Tapo, Messung, Kosten) | Next |
-| P2 | NAS Discovery (mDNS, WOL, Handshake) | Planned |
-| P3 | Smart Cache & File Sync | Planned |
-| P4 | Client-Integration (BaluApp, BaluDesk) | Planned |
-| P5 | Hardening (Watchdog, Logs, Auto-Update) | Planned |
+| P0 | Foundation (FastAPI, DB, Health, System, Auth) | Done |
+| P1 | Energy Monitoring (Tapo, Messung, Kosten) | Done |
+| P2 | NAS Handshake (State Machine, Heartbeat, DNS, WoL) | Done |
+| P3 | Pi-Frontend & SMB-Share | Next |
+| P4 | Snapshot (NAS-Metadaten für View-Only-Dashboard) | Planned |
 
 ## Hardware
 
 - Raspberry Pi 3B+ (1 GB RAM, 4x A53 @ 1.4 GHz)
-- 256 GB USB-SSD (Cache Storage)
-- Power: ~4W idle (~1 kWh/Monat, ~0.30 EUR/Monat)
+- microSD 32 GB+ (OS)
+- USB-SSD 128–512 GB (Daten/Cache)
+- 1 TB HDD (SMB-Share)
+- Tapo P110/P115 Smart Plugs
+- Power: ~3–5W idle (~3 kWh/Monat, ~1 EUR/Monat)
 
 ## Related Projects
 
