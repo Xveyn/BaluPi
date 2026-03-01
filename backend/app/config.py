@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Network
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     api_prefix: str = "/api"
     cors_origins: list[str] = [
@@ -44,10 +44,6 @@ class Settings(BaseSettings):
     log_dir: str = "./data/logs"
     database_path: str = "./data/balupi.db"
 
-    # Cache settings
-    cache_max_size_gb: float = 200.0  # Max cache size in GB
-    cache_eviction_threshold: float = 0.85  # Evict when disk_usage > 85%
-
     # Energy monitoring
     energy_sample_interval_seconds: int = 30
     energy_raw_retention_days: int = 7
@@ -60,13 +56,29 @@ class Settings(BaseSettings):
     # NAS power detection
     nas_power_threshold_watts: float = 30.0
 
-    # Sync settings
-    sync_interval_seconds: int = 300  # 5 minutes
-    upload_chunk_size_kb: int = 256  # 256 KB chunks
+    # Mode: dev = mock data, prod = real hardware
+    mode: str = "dev"
+
+    # Handshake (NAS <-> Pi HMAC auth)
+    handshake_secret: str = ""  # Shared HMAC secret (32+ chars)
+
+    # Pi-hole DNS switching
+    pihole_url: str = "http://localhost"
+    pihole_password: str = ""
+    pi_ip: str = ""  # Pi's own IP for DNS switching
+
+    # NAS connection (extended)
+    nas_ip: str = ""  # NAS IP for DNS switching
+    nas_inbox_path: str = "/data/inbox"  # NAS-side inbox path for rsync
+    nas_ssh_user: str = "baluhost"  # SSH user for rsync
 
     # Pi hardware limits
     uvicorn_workers: int = 1
     max_db_connections: int = 5
+
+    @property
+    def is_dev_mode(self) -> bool:
+        return self.mode == "dev"
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

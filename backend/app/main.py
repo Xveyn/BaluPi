@@ -33,12 +33,9 @@ async def _lifespan(app: FastAPI):
     await init_db()
     logger.info("BaluPi v%s started — listening on %s:%s", __version__, settings.host, settings.port)
 
-    # P1: Energy monitoring services + scheduler
+    # Initialize all services (Phase 1: energy + Phase 2: NAS handshake)
     async with async_session() as db:
         await init_services(db)
-
-    # TODO P2: start NAS discovery
-    # TODO P3: start sync scheduler
 
     try:
         yield
@@ -82,8 +79,8 @@ def create_app() -> FastAPI:
     # Mount API routes
     app.include_router(api_router, prefix=settings.api_prefix)
 
-    # Serve BaluHost frontend (built via sync_frontend.py)
-    static_dir = Path(__file__).resolve().parent.parent / "static"
+    # Serve BaluHost frontend (synced via sync_frontend.py -> dist/)
+    static_dir = Path(__file__).resolve().parent.parent.parent / "dist"
     if static_dir.is_dir() and (static_dir / "index.html").exists():
         # Serve static assets (js, css, images, etc.)
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="frontend-assets")
