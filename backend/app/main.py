@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -94,6 +94,9 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def _spa_fallback(full_path: str):
+            # Never intercept API routes — let them 404 naturally
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not found")
             # Try to serve the exact file first (favicon.ico, etc.)
             file_path = static_dir / full_path
             if full_path and file_path.is_file():
