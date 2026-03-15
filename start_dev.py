@@ -146,7 +146,7 @@ def main() -> int:
             "--host",
             "0.0.0.0",
             "--port",
-            "8000",
+            "8002",
         ]
 
         proc = start_process("backend", backend_cmd, BACKEND_DIR)
