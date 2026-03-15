@@ -149,10 +149,13 @@ async def handshake_status(current_user=Depends(get_current_user)):
 
         last_snapshot = datetime.fromtimestamp(last_snapshot, tz=timezone.utc).isoformat()
 
-    # Inbox size
+    # Inbox size + file count
     inbox_size_mb = 0.0
+    inbox_files = 0
     if INBOX_DIR.exists():
-        total = sum(f.stat().st_size for f in INBOX_DIR.rglob("*") if f.is_file())
+        files = [f for f in INBOX_DIR.rglob("*") if f.is_file()]
+        inbox_files = len(files)
+        total = sum(f.stat().st_size for f in files)
         inbox_size_mb = round(total / (1024 * 1024), 1)
 
     return {
@@ -160,6 +163,7 @@ async def handshake_status(current_user=Depends(get_current_user)):
         "since": sm.since.isoformat(),
         "last_snapshot": last_snapshot,
         "inbox_size_mb": inbox_size_mb,
+        "inbox_files": inbox_files,
     }
 
 

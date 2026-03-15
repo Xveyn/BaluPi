@@ -122,18 +122,18 @@ def build_frontend(client_dir: Path) -> Path:
     env = os.environ.copy()
     env["VITE_API_BASE_URL"] = ""  # empty = same origin
 
-    log("Building frontend (npm run build) ...")
+    log("Building frontend (npm run build:pi) ...")
     subprocess.run(
-        ["npm", "run", "build"],
+        ["npm", "run", "build:pi"],
         cwd=client_dir,
         check=True,
         env=env,
         shell=(os.name == "nt"),
     )
 
-    dist = client_dir / "dist"
+    dist = client_dir / "dist-pi"
     if not dist.exists():
-        error("Build succeeded but dist/ directory not found!")
+        error("Build succeeded but dist-pi/ directory not found!")
     return dist
 
 
@@ -251,9 +251,9 @@ def main() -> None:
         log(f"Using local source: {client_dir}")
 
         if args.skip_build:
-            dist = client_dir / "dist"
+            dist = client_dir / "dist-pi"
             if not dist.exists():
-                error(f"No dist/ in {client_dir} — run build first or remove --skip-build")
+                error(f"No dist-pi/ in {client_dir} — run 'npm run build:pi' first or remove --skip-build")
         else:
             check_node()
             dist = build_frontend(client_dir)
