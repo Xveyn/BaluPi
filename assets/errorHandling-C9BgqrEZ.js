@@ -1,1 +1,0 @@
-import{z as n}from"./index-BXfaWAnQ.js";function a(t,e){const s=t?.response;if(s?.data?.detail){const r=s.data.detail;if(typeof r=="string")return r;if(Array.isArray(r)&&r.length>0&&typeof r[0]?.msg=="string")return r[0].msg}return t instanceof Error?t.message:e}function o(t,e){n.error(a(t,e))}export{a as g,o as h};
